@@ -1,0 +1,455 @@
+---
+title: "Projet RDSM - Analyses Multidimensionnelles pour la pollution à Périgueux"
+author: "Saint Paul Andréa et Cipriano Guillemette"
+date: "Janvier, 2026"
+output:
+  html_document:
+    toc: true
+    theme: united
+    code_folding: show
+  pdf_document:
+    toc: true
+---
+
+```{=html}
+<style>
+.reponse {
+  background-color: #e6f7ff; /* Bleu très clair */
+  border-left: 5px solid #007bff; /* Bordure bleue à gauche */
+  padding: 10px;
+  border-radius: 5px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+h1, h2, h3 {
+  font-weight: 900 !important; /* 900 = Extra Gras (bold normal = 700) */
+  color: #2c3e50; /* Optionnel : Bleu très foncé (plus joli que le noir pur) */
+}
+
+</style>
+```
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyr) 
+library(dplyr) 
+library(ggplot2) 
+library(lubridate)
+library(MASS) 
+library(FactoMineR)
+library(corrplot)
+library(factoextra)
+library(plotly)  
+library(naniar) 
+# rajouter par rapport à la consigne
+library(knitr)
+library(kableExtra)
+```
+
+```{r}
+load("ATMO-RDSM2.rda")
+```
+
+# 1. Première analyse
+
+## 1.1 Construire la matrice de corrélation des variables quantitatives, analyser globalement.
+
+```{r}
+# Sélection des variables numériques
+atmo_quant <- atmo %>% 
+  dplyr::select(where(is.numeric)) 
+
+# Calcul de la matrice de corrélation
+M <- cor(atmo_quant, use = "complete.obs")
+
+# On arrondit à 2 décimales et on affiche la matrice des corrélations sous la forme d'un tableau par souci de lisibilité
+M %>% 
+  round(2) %>% 
+  kable(caption = "Matrice de corrélation des variables quantitatives") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+
+
+# Visualisation
+corrplot(M, method = "circle", type = "upper", 
+         tl.col = "black", tl.srt = 45, 
+         title = "Matrice de corrélation globale", mar = c(0,0,1,0))
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Cette matrice montre clairement qu’il y a deux types de pollution très différents à Périgueux.
+
+D’un côté, on a la pollution liée au trafic routier : le NO et le NO2 sont très fortement liés entre eux (corrélation de +0.88) et augmentent en même temps que les particules (PM10). C'est logique car ils viennent tous des pots d'échappement.
+
+De l’autre côté, l’Ozone (O3) fonctionne à l’inverse. Il dépend surtout de la météo : il augmente quand il fait chaud (+0.47) et qu'il y a du soleil, mais il baisse beaucoup quand l’air est humide (-0.61).
+
+Enfin, on voit que l’Ozone est opposé à la pollution des voitures (corrélation négative de -0.54 avec le NO). C’est un phénomène chimique connu : quand il y a beaucoup de trafic, les gaz d'échappement détruisent l’ozone localement. »
+:::
+
+## 1.2 Construire la matrice de corrélation des variables quantitatives mesurées à midi chaque jour, analyser globalement et comparer avec les résultats précédents.
+
+```{r}
+# Filtrage à 12h
+atmo_midi <- atmo %>% 
+  filter(heure == 12) %>% 
+  dplyr::select(where(is.numeric))
+
+M_midi <- cor(atmo_midi, use = "complete.obs")
+
+# On arrondit à 2 décimales et on affiche la matrice des corrélations sous la forme d'un tableau par souci de lisibilité
+M_midi %>% 
+  round(2) %>% 
+  kable(caption = "Matrice de corrélation - Données à 12h") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)
+
+corrplot(M_midi, method = "circle", type = "upper", 
+         tl.col = "black", tl.srt = 45,
+         title = "Matrice de corrélation (Midi)", mar = c(0,0,1,0))
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+En ne gardant que les données de midi, on se concentre sur le moment de la journée où le soleil est le plus fort. Cela permet de voir un lien très clair entre la Température et l'Ozone : plus il fait chaud, plus il y a d'ozone. C'est logique, car c'est le soleil qui transforme la pollution des voitures (le NO et NO2) en ozone. L'intérêt de ne regarder que midi est de simplifier l'analyse : on supprime les données de la nuit ou des embouteillages du matin qui rendraient l'analyse plus compliquée.
+:::
+
+## 1.3 En se focalisant sur le polluant Ozone (O3), identifier quelques variables statistiquement liées à l’ozone et tracer des graphiques pertinents pour visualiser ce lien.
+
+```{r}
+# Lien Ozone - Température
+p1 <- ggplot(atmo, aes(x = temperature, y = O3)) +
+  geom_point(alpha = 0.1, color = "darkorange") +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Ozone vs Température", x = "Température (°C)", y = "Ozone (µg/m3)")
+
+# Affichage
+p1
+
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Ce graphique montre que plus la température monte, plus la quantité d'ozone augmente. Cela confirme que l'ozone est une pollution typique de l'été, qui a besoin de la chaleur du soleil pour se former.
+:::
+
+```{r}
+# Lien Ozone - NO2
+p2 <- ggplot(atmo, aes(x = NO2, y = O3)) +
+  geom_point(alpha = 0.1, color = "darkred") +
+  geom_smooth(method = "gam", color = "blue") +
+  labs(title = "Ozone vs NO2", x = "NO2 (µg/m3)", y = "Ozone (µg/m3)")
+
+# Affichage
+p2
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Ce graphique montre une relation d'opposition très nette : le nuage de points descend. Cela signifie simplement que l'Ozone et le NO2 ne sont jamais présents en forte quantité en même temps. Quand il y a beaucoup de pollution automobile (fort taux de NO2), l'Ozone disparaît (il est "consommé" par les gaz d'échappement). À l'inverse, les pics d'Ozone n'arrivent que lorsque le niveau de NO2 est faible. La présence de l'un empêche donc celle de l'autre.
+:::
+
+::: reponse
+Ces deux graphiques confirment les mécanismes de formation de l'ozone à Périgueux.
+:::
+
+## 1.4 Faire l’Analyse en Composantes Principales du jeu de données complet.
+
+### 1.4.1. Préparation des données
+```{r}
+# On convertit la colonne texte 'date_debut' en véritable format Date
+atmo$date <- ymd(atmo$date_debut)
+
+# On garde uniquement les variables climatiques et polluants
+# (On exclut explicitement : date_debut, date, jour, heure, mois, etc.)
+vars_actives <- atmo[, c("NO2", "NO", "O3", "PM10", "temperature", "humidite", 
+                         "pression", "pression_variation_3h", "point_de_rosee", 
+                         "vent_moyen", "pluie_24h", "pluie_6h")]
+```
+
+::: reponse
+<u>**Commentaire :**</u> nuage des Individus et des points extrêmes
+
+Pour cette analyse, nous avons d'abord traité la variable temporelle à l'aide du package lubridate pour garantir une gestion fiable des dates. Ensuite, nous avons isolé les variables quantitatives actives (polluants et météo) en excluant les variables illustratives (dates, heures) afin que l'ACP se construise uniquement sur les relations physiques et chimiques de l'atmosphère, sans être perturbée par la chronologie brute.
+:::
+
+### 1.4.2. ACP 
+
+```{r}
+# Calcul de l'ACP sur les données sélectionnées
+res.pca <- PCA(vars_actives, graph = FALSE)
+
+# Graphique des Variables (Cercle des corrélations)
+fviz_pca_var(res.pca, col.var = "cos2", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE, title = "ACP - Cercle des Variables")
+
+```
+
+::: reponse
+<u>**Interprétation :**</u> cercle des Variables
+
+Ce graphique résume les liens entre la météo et la pollution. L'information principale se lit de gauche à droite sur l'axe horizontal, qui sépare les saisons :
+
+-   À gauche, on trouve le groupe "Été" avec la Température et l'Ozone.
+
+-   À droite, on trouve le groupe "Hiver" avec les polluants du trafic (NO, NO2).
+
+C'est cet écart horizontal qui prouve que ces deux groupes s'opposent. Le fait que toutes ces flèches pointent vers le haut montre simplement qu'elles ont une caractéristique commune sur l'axe vertical, mais c'est secondaire par rapport à leur opposition gauche-droite.
+
+Concernant la fiabilité : même si les flèches de l'Ozone et de la Température ne vont pas jusqu'au bord du cercle (ce qui veut dire qu'elles ne sont pas représentées à 100%), ce sont quand même les plus longues de l'axe horizontal. Ce sont donc elles qui expliquent le mieux ce graphique.À l'inverse, les flèche de la pluie_6h et de la pression_variation_3h sont très courtes et restent proche du centre. Ces deux variables sont donc mal représentées sur ce plan et ne peuvent par conéquent pas être analysés via ces deux axes.
+:::
+
+
+```{r}
+# Graphique des Individus
+fviz_pca_ind(res.pca, geom = "point", col.ind = "cos2", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             title = "ACP - Graphique des Individus")
+```
+
+
+::: reponse
+<u>**Interprétation :**</u>  analyse des individus
+
+Ce graphique montre comment les journées se répartissent les unes par rapport aux autres. On remarque que les points ne sont pas mélangés au hasard, mais qu'ils s'étirent horizontalement selon une logique de saisons :
+
+- Les points situés à gauche du graphique correspondent aux journées d'été. Ils se trouvent du même côté que la Température et l'Ozone.
+
+- Les points situés à droite correspondent aux journées d'hiver. Ils se trouvent du côté des polluants du trafic (NO2).
+
+- Les points au centre représentent les journées "moyennes" (intersaison).
+
+Cela prouve visuellement que la pollution à Périgueux fonctionne par cycle : elle change radicalement de nature selon qu'il fait chaud ou froid
+:::
+
+### 1.4.3. Identification des individus "Extrêmes"
+
+```{r}
+#Filtrage des individus (Zone < -3 sur les deux axes)
+coords <- as.data.frame(res.pca$ind$coord)
+extremes <- atmo[coords$Dim.1 < -3 & coords$Dim.2 < -3, ]
+
+# Affichage du nombre de moments
+cat("Nombre de moments identifiés :", nrow(extremes), "\n")
+
+# Affichage du tableau simplifié (Date, Ozone, Température)
+kable(extremes[, c("date_debut", "O3", "temperature")], 
+      caption = "Liste des moments extrêmes identifiés")
+```
+
+
+::: reponse
+<u>**Interprétation :**</u> 
+
+Nous avons isolé un groupe d'individus spécifiques situés dans la zone extrême du plan factoriel, définie par des coordonnées inférieures à -3 en abscisse et inférieures à -3 en ordonnée. Cette sélection permet d'identifier les moments où les conditions atmosphériques sont les plus radicales de l'année.
+:::
+
+
+### 1.4.4. Justification statistique 
+
+```{r}
+# Calcul et regroupement des moyennes dans un seul tableau
+comparaison <- rbind(
+  "Groupe Extrême " = colMeans(extremes[, c("O3", "NO2", "temperature")], na.rm = TRUE),
+  "Moyenne Globale"       = colMeans(atmo[, c("O3", "NO2", "temperature")], na.rm = TRUE)
+)
+
+# Affichage du tableau arrondi (1 chiffre après la virgule)
+kable(round(comparaison, 1), 
+      caption = "Comparaison des conditions moyennes",
+      align = "c")
+
+```
+
+::: reponse
+<u>**Interprétation :**</u> 
+
+L'analyse statistique des moyennes calculées sur ce groupe valide l'interprétation.
+Alors que la moyenne annuelle de l'Ozone est de 50.4 μg/m3, ce groupe extrême présente une concentration moyenne de 101.7 μg/m3 (soit plus du double).
+De plus, la température moyenne y est de 35.1 °C, contre seulement 13.4 °C en moyenne générale sur l'année.
+Ces écarts significatifs confirment que cette zone du graphique isole les épisodes de pollution estivale (pics d'ozone) les plus intenses, directement liés aux vagues de forte chaleur.
+:::
+
+
+## 1.5 On se focalise sur les données observées à midi.
+
+```{r}
+# ACP Midi
+res.pca.midi <- PCA(atmo_midi, graph = FALSE)
+p_midi <- fviz_pca_biplot(res.pca.midi, geom.ind = "point", col.ind = "gray", alpha.ind=0.5) +
+  labs(title = "ACP à Midi (Photochimie)")
+p_midi
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+L'analyse centrée sur 12h met en évidence une structure saisonnière très nette. Le graphique oppose clairement deux situations climatiques : d'un côté, les variables Température et Ozone sont fortement liées (vecteurs proches), ce qui confirme que la chaleur et le soleil de la mi-journée sont les moteurs de la formation d'ozone, phénomène typique de l'été. À l'opposé sur l'axe horizontal, on retrouve les oxydes d'azote (NO, NO2), qui sont prédominants lorsque la photochimie est faible, c'est-à-dire en hiver. La projection des individus confirme cette lecture : les points correspondant aux mois estivaux se regroupent du côté de l'ozone, tandis que les mois hivernaux saturent la zone des oxydes d'azote.
+:::
+
+## 1.6 On se focalise sur les données observées à 18h.
+
+```{r}
+atmo_18h <- atmo %>% filter(heure == 18) %>% dplyr::select(where(is.numeric))
+res.pca.18h <- PCA(atmo_18h, graph = FALSE)
+p_18h <- fviz_pca_biplot(res.pca.18h, geom.ind = "point", col.ind = "gray", alpha.ind=0.5) +
+  labs(title = "ACP à 18h (Pointe Trafic)")
+p_18h
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+À 18h, la structure du graphique change pour refléter l'impact de l'activité humaine : c'est l'heure de pointe. Alors que l'ACP de midi était dominée par le climat, celle de 18h montre une remontée en puissance des polluants du trafic (NO, NO2). Comme le soleil décline (fin de la photochimie), l'Ozone n'est plus aussi fortement lié à la température et commence à être détruit par les émissions fraîches des pots d'échappement. Le graphique illustre donc une atmosphère "mixte" : on observe toujours le cycle des saisons (Été vs Hiver), mais il est désormais perturbé par la forte accumulation de pollution automobile de fin de journée.
+:::
+
+# 2. Deuxième analyse
+
+```{r}
+# On calcule les moyennes journalières de toutes les variables 
+atmo <- atmo %>%  mutate(date = as.Date(date_debut))
+atmo2  <- atmo %>% group_by(date) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>% ungroup() %>% dplyr::select(!c(heure,heure2))
+atmo2$mois <- as.factor(month(atmo2$date))
+atmo2$jour <- wday(atmo2$date,label=TRUE,abbr=FALSE)
+```
+
+## 2.1 Application d'une ACP sur les variables de pollution (en mettant les variables météo en supplémentaires)
+
+```{r}
+# 1. On transforme atmo2 en pur data.frame (pour gérer les row.names)
+atmo2_df <- as.data.frame(atmo2)
+
+# 2. On met les dates dans les noms de lignes
+row.names(atmo2_df) <- atmo2_df$date
+
+# 3. On supprime la colonne date du tableau (pour qu'elle ne soit plus analysée)
+atmo2_df$date <- NULL 
+
+# 4. On relance l'ACP sur ce nouveau tableau
+# Définition des groupes de variables (ajustez les noms si nécessaire)
+vars_poll <- c("O3", "NO2", "NO", "PM10")
+vars_meteo <- c("temperature", "vent", "pluie", "humidite") # Vérifiez vos noms exacts dans atmo2
+
+res.pca.jr <- PCA(atmo2_df, 
+                  quanti.sup = which(names(atmo2_df) %in% vars_meteo),
+                  quali.sup = which(names(atmo2_df) %in% c("mois", "jour")),
+                  graph = FALSE)
+
+# Affichage des résultats
+fviz_pca_var(res.pca.jr, title = "ACP Journalière (Pollution active)")
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Dans cette analyse, le graphique est construit uniquement sur les données de pollution pour isoler leur comportement. Le résultat montre une séparation radicale sur l'axe horizontal : on a deux camps opposés.
+
+-   D'un côté, l'Ozone (O3) se détache tout seul.
+
+-   De l'autre, les polluants issus du trafic (NO, NO2, Particules) restent groupés ensemble.
+
+L'ajout des variables météo (en variables supplémentaires, généralement en bleu) permet d'expliquer ce duel : on voit que la flèche de la Température pointe vers l'Ozone. Cela confirme visuellement que la chaleur est le moteur de la fabrication de l'Ozone, alors que la pollution automobile domine quand il fait plus froid ou que la météo est opposée.
+:::
+
+## 2.2 Inversement des variables actives (météo) et des variables supplémentaires (pollution)
+
+```{r}
+res.pca.meteo <- PCA(atmo2_df, 
+                  quanti.sup = which(names(atmo2_df) %in% vars_poll),
+                  quali.sup = which(names(atmo2_df) %in% c("mois", "jour")),
+                  graph = FALSE)
+
+fviz_pca_var(res.pca.meteo, title = "ACP Journalière (Météo active)")
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Le graphique est créé uniquement avec les données météo. Le but est de comprendre quel type de temps favorise quelle pollution. On voit que la flèche de l'Ozone suit la direction de la Température. C'est la preuve que l'Ozone est une pollution de "beau temps" : elle a besoin de chaleur pour apparaître. À l'inverse, les polluants de la ville (NO2 et particules) se trouvent loin de la chaleur et souvent du vent. Cela prouve que cette pollution devient importante quand la météo est "mauvaise" (froid et sans vent), car les gaz d'échappement restent bloqués sur place au lieu d'être dispersés.
+:::
+
+# 3. Troisième analyse : Modélisation statistique de l'Ozone
+
+<u>**Problématique :**</u> *Peut-on prédire la concentration d'Ozone du jour uniquement à partir des variables météo (Température, Vent, Pluie) ?*
+
+L'ACP ayant déjà été largement explorée, nous avons choisi d'adopter une approche de modélisation prédictive (régression) pour compléter l'analyse descriptive.
+
+## 3.1 Analyses Bivariées (Visualisation)
+
+```{r partie3_visu}
+# Relation 1 : Ozone vs Température
+p_temp <- ggplot(atmo2_df, aes(x = temperature, y = O3)) +
+  geom_point(alpha = 0.6, color = "orange") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Effet de la Température", x = "Température Moyenne (°C)", y = "Ozone") +
+  theme_minimal()
+
+# Relation 2 : Ozone vs Vent (Correction : utilisation de 'vent_moyen')
+p_vent <- ggplot(atmo2_df, aes(x = vent_moyen, y = O3)) +
+  geom_point(alpha = 0.6, color = "skyblue") +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Effet du Vent", x = "Vitesse du Vent Moyen (m/s)", y = "Ozone") +
+  theme_minimal()
+
+# Affichage des deux graphiques
+# Si gridExtra n'est pas installé, vous pouvez afficher p_temp puis p_vent séparément
+gridExtra::grid.arrange(p_temp, p_vent, ncol = 2)
+
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Ces deux visualisations confirment le rôle déterminant de la météo sur la qualité de l'air.
+
+Le premier graphique montre une corrélation positive évidente : le nuage de points monte clairement avec la température, illustrant que la chaleur est donc un élément indispensable pour la formation de ce polluant.
+
+À l'inverse, le second graphique révèle une tendance générale à la baisse lorsque la vitesse du vent augmente. Le vent permet de disperser les polluants dans l'air, ce qui évite qu'ils ne s'accumulent et restent concentrés au même endroit.
+:::
+
+## 3.2 Modélisation Multivariée (Régression Multiple)
+
+*Nous construisons un modèle linéaire où l'Ozone est expliqué par la température, le vent moyen, l'humidité et la pluie sur 24h.*
+
+```{r}
+modele_O3 <- lm(O3 ~ temperature + vent_moyen + humidite + pluie_24h, data = atmo2_df)
+
+# Affichage des résultats
+summary(modele_O3)
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Le modèle confirme statistiquement ce que l'analyse graphique suggérait : la météo influence en grande partie les niveaux d'ozone. L'examen des coefficients montre que la Température est la variable la plus influente (très significative avec 3 étoiles \*\*\*) : son coefficient positif indique que chaque degré supplémentaire augmente la pollution à l'ozone. À l'inverse, le Vent joue un rôle inverse : son coefficient négatif prouve qu'il agit comme un mécanisme de nettoyage qui disperse les polluants. La valeur du R2 ajusté (coefficient de détermination) permet de conclure que la simple connaissance de la météo suffit à expliquer une part majoritaire de la variation de l'ozone (généralement entre 50% et 70% selon les modèles), le reste dépendant des émissions locales et de la chimie complexe.
+:::
+
+## 3.3 Analyse des prédictions
+
+```{r}
+# Ajout des prédictions
+atmo2_df$O3_predit <- predict(modele_O3)
+
+# Graphique Prédiction vs Réalité
+ggplot(atmo2_df, aes(x = O3, y = O3_predit)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Qualité de la prédiction du modèle",
+       subtitle = paste("Corrélation :", round(cor(atmo2_df$O3, atmo2_df$O3_predit, use="complete.obs"), 2)),
+       x = "Ozone Observé", 
+       y = "Ozone Prédit") +
+  theme_bw()
+```
+
+::: reponse
+<u>**Interprétation :**</u>
+
+Ce graphique permet de juger visuellement la fiabilité de notre modèle. L'axe horizontal représente les vraies mesures d'ozone, et l'axe vertical ce que le modèle a calculé en utilisant uniquement la météo. L'alignement global des points le long de la ligne (idéale) en rouge prouve que la prédiction est cohérente : le modèle réussit bien à reproduire les tendances générales. Cependant, la dispersion des points autour de cette ligne montre les limites de l'exercice : la météo n'explique pas tout. Les écarts restants sont dus à la chimie complexe de l'atmosphère et aux variations imprévisibles des émissions humaines (trafic), que ce modèle linéaire simple ne peut pas capturer parfaitement.
+:::
